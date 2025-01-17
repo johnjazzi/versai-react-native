@@ -1,0 +1,39 @@
+{
+  "expo": {
+    "name": "versai",
+    "slug": "versai",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "assets": [
+      "./assets/**/*"
+    ],
+    "plugins": [
+      "onnxruntime-react-native"
+    ],
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.anonymous.versai",
+      "resources": [
+        "./assets/models/**/*"
+      ]
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#ffffff"
+      },
+      "package": "com.anonymous.versai"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    }
+  }
+}
