@@ -7,12 +7,13 @@ from transformers import AutoTokenizer
 
 def test_model(model_name, text):
     feature = "seq2seq-lm"
-    onnx_path = Path(f"versai/src/versai/models/{model_name}-{feature}/")
+    onnx_path = Path(f"models/{model_name}-{feature}/")
     tokenizer = AutoTokenizer.from_pretrained(f"versai/src/versai/models/{model_name}-{feature}/tokenizer")
+    tokenizer = AutoTokenizer.from_pretrained('Helsinki-NLP/opus-mt-ROMANCE-en')
     ort_session = ort.InferenceSession(onnx_path / f"model.onnx")
 
     inputs = tokenizer(text, return_tensors="np", padding=True)
-    decoder_input_ids = tokenizer("<pad>", return_tensors="np")
+
 
     max_length = 50
     decoded_text = []
