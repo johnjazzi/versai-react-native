@@ -145,38 +145,43 @@ export default function App() {
 
 
     const inputs = await tokenizer(text);
-    let decoder_input_ids = await tokenizer("<pad>");
-
-    const max_length = 50;
+    let decoder_input_ids = (await tokenizer("<pad>")).input_ids;
     const decoded_text = [];
+    const max_length = 2;
     console.log('translator', translator);
     
-    for (let i = 0; i < max_length; i++) {
-      // Prepare model inputs
-      const model_inputs = {
-        input_ids: inputs.input_ids,
-        attention_mask: inputs.attention_mask,
-        decoder_input_ids: decoder_input_ids.input_ids,
-        decoder_attention_mask: decoder_input_ids.attention_mask // equivalent to np.ones_like
-      };
+    for (let i = 0; i < max_length; i++) {  
+      console.log('i', i);
+      try {
+        const decoder_mask = new Array(decoder_input_ids.length).fill(1);
 
-      console.log('model_inputs', model_inputs);
-
-      console.log('model_inputs', "good'");
-
-      const outputs = await translator.run(["logits"], model_inputs);
-      console.log('outputs', 'good');
-      const lastLogits = outputs[0][0][outputs[0][0].length - 1];
-      const predictedId = lastLogits.indexOf(Math.max(...lastLogits));
-
-      console.log('predictedId', predictedId);
+        const model_inputs = {
+          input_ids: new ort.Tensor('int64', inputs.input_ids, [1, inputs.input_ids.length]),
+          attention_mask: new ort.Tensor('int64', inputs.attention_mask, [1, inputs.attention_mask.length]),
+          decoder_input_ids: new ort.Tensor('int64', decoder_input_ids, [1, decoder_input_ids.length]),
+          decoder_attention_mask: new ort.Tensor('int64', decoder_mask, [1, decoder_mask.length])
+        };
       
-      decoded_text.push(predictedId);
-      decoder_input_ids = [...decoder_input_ids, predictedId];
+        const outputs = await translator.run(model_inputs);
 
-      if (predictedId === tokenizer.eos_token_id) {
-        break;
+        console.log('outputs', outputs);
+
+        const lastLogits = outputs[0][0][outputs[0][0].length - 1];
+        const predictedId = lastLogits.indexOf(Math.max(...lastLogits));
+  
+        console.log('predictedId', predictedId);
+        
+        decoded_text.push(predictedId);
+        decoder_input_ids = [...decoder_input_ids, predictedId];
+  
+        if (predictedId === tokenizer.eos_token_id) {
+          break;
+        }
+      } catch (error) {
+        console.log('error', error);
       }
+
+
     }
 
     // Decode the output tokens to text
