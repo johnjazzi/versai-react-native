@@ -3,6 +3,7 @@ import React, { useEffect, useState } from 'react';
 import { StyleSheet, Text, View, Button } from 'react-native';
 import { Platform } from 'react-native';
 import * as ortNative from 'onnxruntime-react-native';
+import { AutoTokenizer } from '@xenova/transformers';
 
 // Initialize web ONNX runtime
 const initWebOrt = () => {
@@ -69,9 +70,15 @@ export default function App() {
         if (!ort) {throw new Error('Failed to initialize ONNX Runtime');}
         
         try {
-          const romance_to_en_tokenizer = await createCustomTokenizer(basePath, romance_to_en, feature);
-          const en_to_romance_tokenizer = await createCustomTokenizer(basePath, en_to_romance, feature);
-        
+          //const romance_to_en_tokenizer = await createCustomTokenizer(basePath, romance_to_en, feature);
+          //const en_to_romance_tokenizer = await createCustomTokenizer(basePath, en_to_romance, feature);
+          
+          const romance_to_en_tokenizer = await AutoTokenizer.from_pretrained('xenova/opus-mt-ROMANCE-en');
+          const en_to_romance_tokenizer = await AutoTokenizer.from_pretrained('xenova/opus-mt-en-ROMANCE');
+
+          // romance_to_en_tokenizer.save_pretrained('models/xenova/opus-mt-ROMANCE-en');
+          // en_to_romance_tokenizer.save_pretrained('en_to_romance_tokenizer');
+
           setRomanceToEnTokenizer(() => romance_to_en_tokenizer);
           setEnToRomanceTokenizer(() => en_to_romance_tokenizer);
           
@@ -123,8 +130,9 @@ export default function App() {
         }
         
         const MODEL_MAX_LENGTH = 128;
-        const tokens = text.split(/\s+/);
-        let input_ids = tokens.map(token => vocab[token] || vocab['<unk>']);
+        // Adjust tokenization to handle punctuation correctly
+        const tokens = text.match(/\S+|\s+/g) || []; // Split by whitespace and keep punctuation
+        let input_ids = tokens.map(token => vocab[token.trim()] || vocab['<unk>']); // Trim tokens to avoid leading/trailing spaces
         
         if (input_ids.length > MODEL_MAX_LENGTH) {
           input_ids = input_ids.slice(0, MODEL_MAX_LENGTH);
@@ -182,21 +190,24 @@ export default function App() {
       translator = romanceEnTranslator;
     }
 
-    const inputs = await tokenizer(text);
-    let decoder_input_ids = (await tokenizer("<pad>")).input_ids;
-    const decoded_text = [];
+    const inputs = await tokenizer(text, {return_tensors: 'np'});
+    let decoder_inputs= (await tokenizer("<pad>", {return_tensors: 'np'}));
+  
     const max_length = 15;
-    
+
+    console.log()
+
     for (let i = 0; i < max_length; i++) {  
       try {
-        const decoder_mask = new Array(decoder_input_ids.length).fill(1);
 
         const model_inputs = {
-          input_ids: new ort.Tensor('int64', inputs.input_ids, [1, inputs.input_ids.length]), // Create tensor for input_ids
-          attention_mask: new ort.Tensor('int64', inputs.attention_mask, [1, inputs.attention_mask.length]), // Create tensor for attention_mask
-          decoder_input_ids: new ort.Tensor('int64', decoder_input_ids, [1, decoder_input_ids.length]), // Create tensor for decoder_input_ids
-          decoder_attention_mask: new ort.Tensor('int64', decoder_mask, [1, decoder_mask.length]) // Create tensor for decoder_attention_mask
+          input_ids: inputs.input_ids,
+          attention_mask: inputs.attention_mask,
+          decoder_input_ids: decoder_inputs.input_ids,
+          decoder_attention_mask: decoder_inputs.attention_mask
         };
+
+        console.log(model_inputs)
 
         const outputs = await translator.run(model_inputs);
         const logits_array = outputs.logits.cpuData;
@@ -204,9 +215,13 @@ export default function App() {
 
         console.log('predictedId', predictedId);
         
-        decoder_input_ids = [...decoder_input_ids, predictedId];
+        const newDecoderInputIdIndex = decoder_inputs.decoder_input_ids.size; // Get current size for decoder_input_ids
+        decoder_inputs.input_ids.data[newDecoderInputIdIndex] = predictedId; // Append predictedId
+        decoder_inputs.input_ids.size += 1; // Increment size
 
-        console.log('decoder_input_ids', decoder_input_ids);
+        const newDecoderAttentionMaskIndex = decoder_inputs.decoder_attention_mask.size; // Get current size for decoder_attention_mask
+        decoder_inputs.attention_mask.data[newDecoderAttentionMaskIndex] = 1; // Append 1 to attention mask
+        decoder_inputs.attention_mask.size += 1; // Increment size
   
         if (predictedId === tokenizer.eos_token_id) {
           break;
@@ -232,7 +247,7 @@ export default function App() {
       <Text>Hello World!</Text>
       <Button 
         title="Translate" 
-        onPress={() => translate('Hola, ¿cómo estás?', 'pt', 'en')}
+        onPress={() => translate(" Hello, how are you?", 'en', 'pt')}
       />
       <StatusBar style="auto" />
     </View>
