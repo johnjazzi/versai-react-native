@@ -1,9 +1,12 @@
 import { StatusBar } from 'expo-status-bar';
 import React, { useEffect, useState } from 'react';
-import { StyleSheet, Text, View, Button } from 'react-native';
+import { StyleSheet, Text, View, Button, TextInput, TouchableOpacity, SafeAreaView } from 'react-native';
 import { Platform } from 'react-native';
 import * as ortNative from 'onnxruntime-react-native';
-import { AutoTokenizer } from '@xenova/transformers';
+//import { AutoTokenizer , pipeline} from '@xenova/transformers';
+import { Ionicons } from '@expo/vector-icons';
+import { pipeline } from '@huggingface/transformers';
+
 
 // Initialize web ONNX runtime
 const initWebOrt = () => {
@@ -41,6 +44,46 @@ const initWebOrt = () => {
     document.body.appendChild(script);
   });
 };
+
+
+const initTransformersJS = () => {
+  return new Promise((resolve) => {
+    // Check if already loaded
+    if (window.transformers) {
+      resolve(window.transformers);
+      return;
+    }
+
+    try {
+      const script = document.createElement('script');
+      script.type = 'module';
+      script.src = 'https://unpkg.com/@huggingface/transformers';
+      script.async = true;
+      
+      script.onload = () => {
+        console.log('Transformers.js loaded');
+        console.log(window);
+        if (window.transformers) {
+          console.log(window.transformers);
+          resolve(window.transformers);
+          return;
+        }
+      };
+    
+      script.onerror = (err) => {
+        console.error('Error loading Transformers.js:', err);
+        resolve(null);
+      };
+
+      document.body.appendChild(script);
+    } catch (error) {
+      console.error('Error loading Transformers.js:', error);
+      resolve(null);
+    }
+  });
+};
+
+
 const basePath = '/Users/johnazzinaro/Coding/versai-react-native/versai/models'
 //const basePath = '/assets/models';
 const en_to_romance = 'Helsinki-NLP/opus-mt-en-ROMANCE';
@@ -58,43 +101,49 @@ export default function App() {
   const [enRomanceTranslator, setEnToRomanceTranslator] = useState(null);
   const [models_loaded, setModelsLoaded] = useState(false);
   const [ort, setOrt] = useState(null);
+  const [transformers, setTransformers] = useState(null);
+  const [sourceText, setSourceText] = useState('');
+  const [targetText, setTargetText] = useState('');
+  const [sourceLang, setSourceLang] = useState('en');
+  const [targetLang, setTargetLang] = useState('es');
 
   useEffect(() => {
     const initTranslator = async () => {
       try {
+        setModelsLoaded(false);
         console.log('Initializing ONNX Runtime...');
 
         const ort = await initWebOrt();
         setOrt(() => ort);
+
         
         if (!ort) {throw new Error('Failed to initialize ONNX Runtime');}
+   //     if (!transformers) {throw new Error('Failed to initialize Transformers');}
+
         
-        try {
-          //const romance_to_en_tokenizer = await createCustomTokenizer(basePath, romance_to_en, feature);
-          //const en_to_romance_tokenizer = await createCustomTokenizer(basePath, en_to_romance, feature);
+        // try {
+        //   const romance_to_en_tokenizer = await AutoTokenizer.from_pretrained('xenova/opus-mt-ROMANCE-en');
+        //   const en_to_romance_tokenizer = await AutoTokenizer.from_pretrained('xenova/opus-mt-en-ROMANCE');
+        //   setRomanceToEnTokenizer(() => romance_to_en_tokenizer);
+        //   setEnToRomanceTokenizer(() => en_to_romance_tokenizer);
           
-          const romance_to_en_tokenizer = await AutoTokenizer.from_pretrained('xenova/opus-mt-ROMANCE-en');
-          const en_to_romance_tokenizer = await AutoTokenizer.from_pretrained('xenova/opus-mt-en-ROMANCE');
+        //   console.log('Tokenizers created successfully');
+        // } catch (error) {
+        //   console.error("Tokenizer setup failed:", error);
+        //   throw error;
+        // }
 
-          // romance_to_en_tokenizer.save_pretrained('models/xenova/opus-mt-ROMANCE-en');
-          // en_to_romance_tokenizer.save_pretrained('en_to_romance_tokenizer');
+        // console.log('Creating inference sessions...');
+        // const romance_to_en_translator = await ort.InferenceSession.create(
+        //   `${basePath}/${romance_to_en}-${feature}/model.onnx`
+        // );
+        // const en_to_romance_translator = await ort.InferenceSession.create(
+        //   `${basePath}/${en_to_romance}-${feature}/model.onnx`
+        // );
 
-          setRomanceToEnTokenizer(() => romance_to_en_tokenizer);
-          setEnToRomanceTokenizer(() => en_to_romance_tokenizer);
-          
-          console.log('Tokenizers created successfully');
-        } catch (error) {
-          console.error("Tokenizer setup failed:", error);
-          throw error;
-        }
-
-        console.log('Creating inference sessions...');
-        const romance_to_en_translator = await ort.InferenceSession.create(
-          `${basePath}/${romance_to_en}-${feature}/model.onnx`
-        );
-        const en_to_romance_translator = await ort.InferenceSession.create(
-          `${basePath}/${en_to_romance}-${feature}/model.onnx`
-        );
+        console.log('setting up pipelines...')
+        const romance_to_en_translator = await pipeline('translation', 'xenova/opus-mt-en-ROMANCE');
+        const en_to_romance_translator = await pipeline('translation', 'xenova/opus-mt-en-ROMANCE');
 
         setRomanceToEnTranslator(() => romance_to_en_translator);
         setEnToRomanceTranslator(() => en_to_romance_translator);
@@ -112,65 +161,7 @@ export default function App() {
 
 
 
-  // Make sure to handle null text in your tokenizer
-  const createCustomTokenizer = async (basePath, modelPath, feature) => {
-    try {
-      console.log(`Loading tokenizer from ${basePath}/${modelPath}-${feature}/tokenizer/vocab.json`);
-      const vocab = await fetch(`${basePath}/${modelPath}-${feature}/tokenizer/vocab.json`).then(r => r.json());
-      const config = await fetch(`${basePath}/${modelPath}-${feature}/tokenizer/tokenizer_config.json`).then(r => r.json());
-      
-      const reverseVocab = Object.fromEntries(Object.entries(vocab).map(([k, v]) => [v, k]));
-      
-      // Define the tokenizer function
-      const tokenizer = (text, options = {}) => {
-        const { pad = false } = options; // Destructure pad option
-        if (!text) {
-          console.warn('Received empty text for tokenization');
-          return { input_ids: [], attention_mask: [] }; // Handle null or empty text
-        }
-        
-        const MODEL_MAX_LENGTH = 128;
-        // Adjust tokenization to handle punctuation correctly
-        const tokens = text.match(/\S+|\s+/g) || []; // Split by whitespace and keep punctuation
-        let input_ids = tokens.map(token => vocab[token.trim()] || vocab['<unk>']); // Trim tokens to avoid leading/trailing spaces
-        
-        if (input_ids.length > MODEL_MAX_LENGTH) {
-          input_ids = input_ids.slice(0, MODEL_MAX_LENGTH);
-        }
-        
-        if (pad) { // Check if padding is required
-          while (input_ids.length < MODEL_MAX_LENGTH) {
-            input_ids.push(vocab['<pad>']);
-          }
-        }
-        
-        // Adjust attention_mask to match input_ids length without padding
-        const attention_mask = new Array(input_ids.length).fill(0);
-        for (let i = 0; i < input_ids.length; i++) {
-          attention_mask[i] = 1;
-        }
-        
-        return { input_ids, attention_mask };
-      };
 
-      // Add a decode method to the tokenizer
-      tokenizer.decode = (input_ids) => {
-        return input_ids.map(id => reverseVocab[id] || '<unk>').join(' ');
-      };
-
-      console.log('Tokenizer function created successfully');
-      return tokenizer; // Ensure the tokenizer function is returned
-    } catch (error) {
-      console.error('Error creating custom tokenizer:', error);
-      throw error;
-    }
-  };
-
-  const argmax = (array) => {
-    return array.reduce((maxIndex, currentValue, currentIndex, arr) => {
-      return currentValue > arr[maxIndex] ? currentIndex : maxIndex;
-    }, 0);
-  };
 
   const translate = async (text, source_lang, target_lang) => {
     console.log( 'translating ', text, source_lang, target_lang);
@@ -179,78 +170,87 @@ export default function App() {
       return;
     }
 
-    let tokenizer, translator;
+    let translator;
 
     if (source_lang === 'en') {
-      tokenizer = enRomanceTokenizer;
       translator = enRomanceTranslator;
       text = `>>${target_lang}<< ${text}`
     } else {
-      tokenizer = romanceEnTokenizer;
       translator = romanceEnTranslator;
     }
 
-    const inputs = await tokenizer(text, {return_tensors: 'np'});
-    let decoder_inputs= (await tokenizer("<pad>", {return_tensors: 'np'}));
-  
-    const max_length = 15;
-
-    console.log()
-
-    for (let i = 0; i < max_length; i++) {  
-      try {
-
-        const model_inputs = {
-          input_ids: inputs.input_ids,
-          attention_mask: inputs.attention_mask,
-          decoder_input_ids: decoder_inputs.input_ids,
-          decoder_attention_mask: decoder_inputs.attention_mask
-        };
-
-        console.log(model_inputs)
-
-        const outputs = await translator.run(model_inputs);
-        const logits_array = outputs.logits.cpuData;
-        const predictedId = argmax(logits_array);
-
-        console.log('predictedId', predictedId);
-        
-        const newDecoderInputIdIndex = decoder_inputs.decoder_input_ids.size; // Get current size for decoder_input_ids
-        decoder_inputs.input_ids.data[newDecoderInputIdIndex] = predictedId; // Append predictedId
-        decoder_inputs.input_ids.size += 1; // Increment size
-
-        const newDecoderAttentionMaskIndex = decoder_inputs.decoder_attention_mask.size; // Get current size for decoder_attention_mask
-        decoder_inputs.attention_mask.data[newDecoderAttentionMaskIndex] = 1; // Append 1 to attention mask
-        decoder_inputs.attention_mask.size += 1; // Increment size
-  
-        if (predictedId === tokenizer.eos_token_id) {
-          break;
-        }
-      } catch (error) {
-        console.log('error', error);
-      }
-
-
-    }
-
-    // Decode the output tokens to text
-    const translated_text = await tokenizer.decode(decoder_input_ids);
-    console.log(`Input: ${text}`);
-    console.log(`Translation: ${translated_text}`);
-    
+    const translated_text = await translator(text);
+    console.log(translated_text);
     return translated_text;
   }
 
 
   return (
-    <View style={styles.container}>
-      <Text>Hello World!</Text>
-      <Button 
-        title="Translate" 
-        onPress={() => translate(" Hello, how are you?", 'en', 'pt')}
+    <SafeAreaView style={styles.container}>
+      <Text style={styles.title}>Translate</Text>
+
+      <Button
+        title="Translate"
+        onPress={() => {
+          translate("test me", "en", "pt");
+        }}
       />
-      <StatusBar style="auto" />
-    </View>
+      
+      <View style={styles.translationContainer}>
+        {/* Source Language Section */}
+        <View style={styles.languageSection}>
+          <View style={styles.languageHeader}>
+            <TouchableOpacity style={styles.languageSelector}>
+              <Text style={styles.languageText}>{sourceLang.toUpperCase()}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity>
+              <Ionicons name="mic" size={24} color="black" />
+            </TouchableOpacity>
+          </View>
+          <TextInput
+            style={styles.textInput}
+            multiline
+            placeholder="Enter text"
+            value={sourceText}
+            onChangeText={setSourceText}
+          />
+        </View>
+
+        {/* Language Swap Button */}
+        <TouchableOpacity 
+          style={styles.swapButton}
+          onPress={() => {
+            const tempLang = sourceLang;
+            setSourceLang(targetLang);
+            setTargetLang(tempLang);
+            const tempText = sourceText;
+            setSourceText(targetText);
+            setTargetText(tempText);
+          }}
+        >
+          <Ionicons name="swap-vertical" size={24} color="white" />
+        </TouchableOpacity>
+
+        {/* Target Language Section */}
+        <View style={styles.languageSection}>
+          <View style={styles.languageHeader}>
+            <TouchableOpacity style={styles.languageSelector}>
+              <Text style={styles.languageText}>{targetLang.toUpperCase()}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity>
+              <Ionicons name="mic" size={24} color="black" />
+            </TouchableOpacity>
+          </View>
+          <TextInput
+            style={styles.textInput}
+            multiline
+            placeholder="Translation"
+            value={targetText}
+            editable={false}
+          />
+        </View>
+      </View>
+    </SafeAreaView>
   );
 }
 
@@ -258,8 +258,61 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#fff',
+  },
+  title: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    padding: 20,
+    textAlign: 'center',
+  },
+  translationContainer: {
+    flex: 1,
+    marginHorizontal: 16,
+  },
+  languageSection: {
+    flex: 1,
+    backgroundColor: '#f5f5f5',
+    borderRadius: 12,
+    padding: 16,
+    marginVertical: 8,
+  },
+  languageHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
+    marginBottom: 12,
+  },
+  languageSelector: {
+    backgroundColor: '#e0e0e0',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+  },
+  languageText: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  textInput: {
+    flex: 1,
+    fontSize: 18,
+    textAlignVertical: 'top',
+  },
+  swapButton: {
+    position: 'absolute',
+    right: 16,
+    top: '50%',
+    marginTop: -20,
+    backgroundColor: '#007AFF',
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
   },
 });
 
